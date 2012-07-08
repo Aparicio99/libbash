@@ -81,6 +81,12 @@ echo ${FOO039/@([a-c]|[k-m])}
 echo ${FOO039//@([a-c]|[k-m])}
 target="abc123abc"
 echo "${target##+(ab[c])*([[:digit:]])}"
+pos_test2(){
+    echo $@
+    echo $1
+    echo $2
+    echo $3
+}
 function positional_parameter_test(){
     echo $*
     echo ${*}
@@ -97,6 +103,13 @@ function positional_parameter_test(){
     echo ${@: -2:5}
     echo ${@:0}
     echo $#
+    echo "$*"
+    echo "$@"
+    pos_test2 $*
+    pos_test2 $@
+    pos_test2 "$*"
+    pos_test2 "$@"
+    pos_test2 "foo $@ bar"
 }
 positional_parameter_test 1 2 3 4 5
 target="abc*abc"

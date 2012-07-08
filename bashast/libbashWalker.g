@@ -262,7 +262,7 @@ array_def_helper[const std::string& libbash_name, std::map<unsigned, std::string
 		{ values[index++] = expr.libbash_value; }
 	)*);
 
-string_expr returns[std::string libbash_value, bool quoted]
+string_expr returns[std::string libbash_value, bool quoted, std::vector<std::string> array]
 @init {
 	$quoted = true;
 	bool is_raw_string = true;
@@ -279,6 +279,10 @@ string_expr returns[std::string libbash_value, bool quoted]
 			for(auto iter = brace_expansion_base.begin(); iter != brace_expansion_base.end(); ++iter)
 				*iter += $string_part.libbash_value;
 			$quoted = $string_part.quoted;
+
+			if($string_part.array.size() > 0)
+				$array.insert($array.end(), $string_part.array.begin(), $string_part.array.end());
+
 			if(is_raw_string)
 				is_raw_string = $string_part.is_raw_string;
 		}
@@ -302,16 +306,25 @@ brace_expansion[std::vector<std::string>& elements]
 		$elements.push_back($string_expr.libbash_value);
 	})+;
 
-string_part returns[std::string libbash_value, bool quoted, bool is_raw_string]
+string_part returns[std::string libbash_value, bool quoted, bool is_raw_string, std::vector<std::string> array]
 @init {
 	$quoted = false;
 	$is_raw_string = true;
 }
 	:(DOUBLE_QUOTED_STRING) =>
-		^(DOUBLE_QUOTED_STRING (libbash_string=double_quoted_string {
-									$libbash_value += libbash_string;
+		^(DOUBLE_QUOTED_STRING (double_quoted_string {
+								if($double_quoted_string.array.size() > 0) {
+									if($array.size() == 0)
+										$array.push_back("");
+									$array.back().append($double_quoted_string.array.front());
+									if($double_quoted_string.array.size() > 1)
+										$array.insert($array.end(), $double_quoted_string.array.begin() + 1, $double_quoted_string.array.end());
+
+									$libbash_value += boost::algorithm::join($double_quoted_string.array, " ");
+
 									$quoted = true;
-								})*)
+								}
+							})*)
 	|(SINGLE_QUOTED_STRING) => ^(SINGLE_QUOTED_STRING node=SINGLE_QUOTED_STRING_TOKEN) {
 		$libbash_value = get_single_quoted_string(node);
 		$quoted = true;
@@ -321,8 +334,8 @@ string_part returns[std::string libbash_value, bool quoted, bool is_raw_string]
 			$libbash_value = boost::lexical_cast<std::string>(value);
 			$is_raw_string = false;
 		})
-	|(var_ref[false]) => libbash_string=var_ref[false] {
-		$libbash_value = libbash_string;
+	|(var_ref[false]) => var_ref[false] {
+		$libbash_value = $var_ref.libbash_value;
 		$is_raw_string = false;
 	}
 	|(COMMAND_SUB) => libbash_string=command_substitution {
@@ -445,15 +458,17 @@ basic_pattern[boost::xpressive::sregex& pattern, bool greedy, bool& do_append]
 	};
 
 //double quoted string rule, allows expansions
-double_quoted_string returns[std::string libbash_value]
-	:(var_ref[true]) => libbash_string=var_ref[true] { $libbash_value = libbash_string; }
+double_quoted_string returns[std::string libbash_value, std::vector<std::string> array]
+	:(var_ref[true]) => var_ref[true] {
+		$array = $var_ref.array;
+	}
 	|(ARITHMETIC_EXPRESSION) => ^(ARITHMETIC_EXPRESSION value=arithmetics) {
-		$libbash_value = boost::lexical_cast<std::string>(value);
+		$array.push_back(boost::lexical_cast<std::string>(value));
 	}
 	|(COMMAND_SUB) => libbash_string=command_substitution {
-		$libbash_value = libbash_string;
+		$array.push_back(libbash_string);
 	}
-	|libbash_string=any_string { $libbash_value = libbash_string; };
+	|libbash_string=any_string { $array.push_back(libbash_string); };
 
 any_string returns[std::string libbash_value]
 options {backtrack = true;}
@@ -504,11 +519,10 @@ var_name_for_bang returns[std::string libbash_value]
 		$libbash_value = $name.libbash_value;
 	};
 
-array_name returns[std::string libbash_value]
+array_name [bool double_quoted] returns[std::string libbash_value]
 	:^(ARRAY name (AT|TIMES)) { $libbash_value = $name.libbash_value; }
-	// We do not care the difference between TIMES and AT for now
 	|TIMES { $libbash_value = "*"; }
-	|AT { $libbash_value = "*"; };
+	|AT { $libbash_value = (double_quoted ? "@" : "*"); };
 
 // Now the rule will call back to parser and perform the expansions
 raw_string returns[std::string libbash_value]
@@ -559,12 +573,12 @@ var_expansion returns[std::string libbash_value]
 		libbash_value = walker->do_alternate_expansion(walker->is_unset($var_name.libbash_value),
 		                                               libbash_word);
 	}
-	|(^(OFFSET array_name ^(OFFSET arithmetics) ^(OFFSET arithmetics))) =>
-		^(OFFSET libbash_name=array_name ^(OFFSET offset=arithmetics) ^(OFFSET length=arithmetics)) {
+	|(^(OFFSET array_name[false] ^(OFFSET arithmetics) ^(OFFSET arithmetics))) =>
+		^(OFFSET libbash_name=array_name[false] ^(OFFSET offset=arithmetics) ^(OFFSET length=arithmetics)) {
 		libbash_value = walker->do_subarray_expansion(libbash_name, offset, length);
 	}
-	|(^(OFFSET array_name ^(OFFSET offset=arithmetics))) =>
-		^(OFFSET libbash_name=array_name ^(OFFSET offset=arithmetics)) {
+	|(^(OFFSET array_name[false] ^(OFFSET offset=arithmetics))) =>
+		^(OFFSET libbash_name=array_name[false] ^(OFFSET offset=arithmetics)) {
 		libbash_value = walker->do_subarray_expansion(libbash_name, offset);
 	}
 	|(^(OFFSET var_name ^(OFFSET arithmetics) ^(OFFSET arithmetics))) =>
@@ -629,15 +643,31 @@ var_expansion returns[std::string libbash_value]
 word returns[std::string libbash_value]
 	:(num) => libbash_string=num { $libbash_value = libbash_string; }
 	|string_expr { $libbash_value = $string_expr.libbash_value; }
-	|(VAR_REF) => libbash_string=var_ref[false] { $libbash_value = libbash_string; }
+	|(VAR_REF) => var_ref[false] { $libbash_value = $var_ref.libbash_value; }
 	|value=arithmetics { $libbash_value = boost::lexical_cast<std::string>(value); };
 
 //variable reference
-var_ref [bool double_quoted] returns[std::string libbash_value]
-	:^(VAR_REF var_name) {
-		$libbash_value = walker->resolve<std::string>($var_name.libbash_value, $var_name.index);
+var_ref [bool double_quoted] returns[std::string libbash_value, std::vector<std::string> array]
+@after {
+  if(double_quoted && $array.size() < 1 && $libbash_value.size() > 0)
+    $array.push_back($libbash_value);
+}
+	:^(VAR_REF var_name) { $libbash_value = walker->resolve<std::string>($var_name.libbash_value, $var_name.index); }
+	|^(VAR_REF libbash_string=array_name[double_quoted]) {
+		if(double_quoted) {
+			if(libbash_string == "@")
+				walker->resolve_array("*", $array);
+			else {
+				std::string joined_values;
+				walker->get_all_elements_IFS_joined(libbash_string, joined_values);
+				$array.push_back(joined_values);
+			}
+		} else {
+			if(libbash_string == "@")
+				libbash_string = "*";
+			walker->get_all_elements_IFS_joined(libbash_string, $libbash_value);
+		}
 	}
-	|^(VAR_REF libbash_string=array_name) { walker->get_all_elements_IFS_joined(libbash_string, $libbash_value); }
 	|^(VAR_REF POUND) { $libbash_value = boost::lexical_cast<std::string>(walker->get_array_length("*")); }
 	|^(VAR_REF QMARK) { $libbash_value = boost::lexical_cast<std::string>(walker->get_status()); }
 	|^(VAR_REF BANG) { std::cerr << "$! has not been implemented yet" << std::endl; }
@@ -746,8 +776,11 @@ redirect_destination_input
 
 argument[std::vector<std::string>& args, bool split]
 	: string_expr {
-		if(!$string_expr.libbash_value.empty())
-		{
+
+		if($string_expr.array.size() > 0) {
+			args.insert(args.end(), $string_expr.array.begin(), $string_expr.array.end());
+		}
+		else if(!$string_expr.libbash_value.empty()) {
 			if($string_expr.quoted || !split)
 				args.push_back($string_expr.libbash_value);
 			else
@@ -1153,8 +1186,8 @@ primary returns[std::string libbash_value, unsigned index]
 		$index = $name.index;
 	}
 	// array[@] and array[*] is meaningless to arithmetic expansion so true/false are both ok.
-	|^(VAR_REF libbash_string=var_ref[false]) {
-		$libbash_value = libbash_string;
+	|^(VAR_REF var_ref[false]) {
+		$libbash_value = $var_ref.libbash_value;
 		$index = 0;
 	};
 
