@@ -52,3 +52,9 @@ _EOF_.abc
 GNU...
 END_LDSCRIPT" -> (LIST (COMMAND (REDIR > (STRING / dev / null)) (STRING cat) (<<- (STRING GNU .. . 
 ))))
+"cat << '_EOF_'
+foo
+bar
+_EOF_" -> (LIST (COMMAND (STRING cat) (<< (STRING foo 
+ bar 
+))))

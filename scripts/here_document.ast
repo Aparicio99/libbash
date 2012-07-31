@@ -4,4 +4,8 @@
       java   - Dtijmp . jar = " $(java-config -p tijmp) "   - agentlib : tijmp   " $ { @ } " 
 ))) (COMMAND (REDIR > (STRING (DOUBLE_QUOTED_STRING / dev / null))) (STRING cat) (<<- (STRING 
       java   - Dtijmp . jar = " $(java-config -p tijmp) "   - agentlib : tijmp   " $ { @ } " 
+))) (COMMAND (STRING cat) (<< (STRING blah 
+ blah 
+))) (COMMAND (STRING cat) (<< (STRING one   two   three 
+))) (COMMAND (STRING cat) (<< (STRING one   two   three 
 ))))

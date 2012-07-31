@@ -189,6 +189,12 @@ tokens{
 			boost::numeric_cast<unsigned>(token->stop - token->start + 1));
 	}
 
+	std::string get_single_quoted_string(pANTLR3_COMMON_TOKEN token)
+	{
+		return std::string(reinterpret_cast<const char *>(token->start + 1),
+						   boost::numeric_cast<unsigned>(token->stop - token->start - 1));
+	}
+
 	static bool is_here_end(plibbashParser ctx, const std::string& here_document_word, int number_of_tokens_in_word)
 	{
 		std::string word;
@@ -212,6 +218,12 @@ tokens{
 	String get_string(Token token) {
 		return token.getText();
 	}
+
+	String get_single_quoted_string(Token token) {
+		String quoted = token.getText();
+		return quoted.substring(1, quoted.length() - 1);
+	}
+
 
 	Token LT(int index) {
 		return input.LT(index);
@@ -335,10 +347,37 @@ here_document_operator
 		);
 
 here_document_begin
-	:	(
-			token=~(EOL|BLANK|LESS_THAN|HERE_STRING_OP|GREATER_THAN|RSHIFT|AMP_LESS_THAN|AMP_GREATER_THAN|AMP_RSHIFT)
+	:	token=SINGLE_QUOTED_STRING_TOKEN
+		{
+			$here_document::here_document_word = get_single_quoted_string($token);
+			$here_document::number_of_tokens = 1;
+#ifdef OUTPUT_C
+			size_t pos = 0;
+			while((pos = $here_document::here_document_word.find(' ', pos)) != std::string::npos)
+#else
+			int pos = 0;
+			while((pos = $here_document::here_document_word.indexOf(' ', pos)) != -1)
+#endif
 			{
-				if(LA(-1) != DQUOTE && LA(-1) != ESC)
+				// Increments two, one for the token and one for the BLANK
+				$here_document::number_of_tokens += 2;
+				++pos;
+			}
+		}
+	|	DQUOTE (
+			token=~(DQUOTE|EOL|LESS_THAN|HERE_STRING_OP|GREATER_THAN|RSHIFT|AMP_LESS_THAN|AMP_GREATER_THAN|AMP_RSHIFT)
+			{
+				if(LA(-1) != ESC)
+				{
+					$here_document::here_document_word += get_string($token);
+					$here_document::number_of_tokens++;
+				}
+			}
+		)+ DQUOTE
+	|	(
+			token=~(DQUOTE|SINGLE_QUOTED_STRING_TOKEN|BLANK|EOL|LESS_THAN|HERE_STRING_OP|GREATER_THAN|RSHIFT|AMP_LESS_THAN|AMP_GREATER_THAN|AMP_RSHIFT)
+			{
+				if(LA(-1) != ESC)
 				{
 					$here_document::here_document_word += get_string($token);
 					$here_document::number_of_tokens++;
