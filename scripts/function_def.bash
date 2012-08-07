@@ -115,3 +115,8 @@ test-flag-CC() {
     echo "CC" "$1";
 }
 test-flag-CC abc
+
+do-while-func() {
+  echo "do-while-func"
+}
+do-while-func

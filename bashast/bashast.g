@@ -736,11 +736,12 @@ string_expr_no_reserved_word
 	:	(~POUND) =>
 			(
 				non_quoted_string string_expr_part* -> ^(STRING non_quoted_string string_expr_part*)
+				|	reserved_word string_expr_part+ -> ^(STRING reserved_word string_expr_part+)
 				|	quoted_string string_expr_part* -> ^(STRING quoted_string string_expr_part*)
 			);
 
 reserved_word
-	:	CASE|DO|DONE|ELIF|ELSE|ESAC|FI|FOR|IF|IN|SELECT|THEN|UNTIL|WHILE|TIME;
+	:	CASE|DO|DONE|ELIF|ELSE|FI|FOR|IF|IN|SELECT|THEN|UNTIL|WHILE|TIME;
 
 non_quoted_string
 	:	string_part
